@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Minimal, self-contained server output for Docker (see Dockerfile) —
+  // bundles only the node_modules this app actually needs.
+  output: "standalone",
   turbopack: {
     root: __dirname,
   },

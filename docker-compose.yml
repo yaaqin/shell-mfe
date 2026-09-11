@@ -1,0 +1,54 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    env_file:
+      - ./backend/.env.docker
+    networks: [internal]
+    restart: unless-stopped
+    # Published so the browser (web-csr's client-side fetch, cross-origin)
+    # can reach it directly — put a real TLS reverse proxy in front of this
+    # port in production, don't expose plain HTTP on the open internet.
+    ports:
+      - "9761:9761"
+
+  web-csr:
+    build:
+      context: ./web-csr
+      args:
+        # Baked into the browser bundle at build time — see
+        # web-csr/Dockerfile and the note in .env.docker.example.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    networks: [internal]
+    restart: unless-stopped
+    depends_on:
+      - backend
+
+  web-ssr:
+    build:
+      context: ./web-ssr
+    env_file:
+      - ./web-ssr/.env.local.docker
+    networks: [internal]
+    restart: unless-stopped
+    depends_on:
+      - backend
+
+  gateway:
+    build:
+      context: ./gateway
+    env_file:
+      - ./gateway/.env.docker
+    # The one public entry point — everything else stays on the internal
+    # network only.
+    ports:
+      - "9760:9760"
+    networks: [internal]
+    restart: unless-stopped
+    depends_on:
+      - web-csr
+      - web-ssr
+
+networks:
+  internal:
+    driver: bridge

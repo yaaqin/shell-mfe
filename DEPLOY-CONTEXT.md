@@ -51,6 +51,15 @@ A demo proving out an auth pattern across a **reverse-proxy composite frontend**
 
 Root `package.json` has `install:all`, `db:setup`, `dev`, `build`, `start` scripts that orchestrate all four via `concurrently` — see the repo's own README for exact commands.
 
+## Docker is already set up
+
+Each service has its own multi-stage `Dockerfile` (production builds; `web-csr`/`web-ssr` use Next's `output: "standalone"`), plus a root `docker-compose.yml` wiring all four on one internal bridge network. **Already built, run, and tested end-to-end** — `docker compose up --build`, hit the gateway, full login-flow plumbing confirmed working through it (including a real query against the Postgres DB from inside the `backend` container). So deployment topology question #1 below is really "how do I run this docker-compose.yml on a VPS reliably" (which orchestrator/supervisor for the Docker Compose process itself), not "should I containerize this."
+
+Compose networking notes, since they change what "the deployment steps" actually need to cover:
+- `gateway` and `backend` are `ports:`-published to the host (9760 and 9761); `web-csr`/`web-ssr` are internal-only, reached by `gateway` via Docker's service-name DNS (`http://web-csr:9762`, `http://web-ssr:9763`).
+- `backend` is published because `web-csr` is client-rendered — its `NEXT_PUBLIC_API_URL` gets baked into the **browser** bundle at Docker build time (a `build.args` value in the compose file), so it must be a URL the browser can actually reach, not a Docker-internal hostname.
+- Real per-service env values go in gitignored `*.env.docker`/`.env.local.docker` files (templates: `*.env.docker.example`, tracked in the repo) plus a root `.env` for the one build-time `NEXT_PUBLIC_API_URL` value — see the repo's README "Running with Docker" section for the exact copy commands.
+
 ## ⚠️ Known limitation: dev mode does NOT work correctly behind the gateway
 
 Next.js's dev server (Turbopack) runs an HMR websocket that silently fails when proxied through an arbitrary reverse proxy (documented Next.js dev-server limitation, confirmed via testing) — pages load but never finish hydrating (clicks/forms fall back to native browser behavior). **This only affects `npm run dev`.** Production builds (`next build && next start`) work correctly end-to-end through the gateway — already verified locally with Playwright. **Whatever deployment approach you suggest, it must run all three Next-adjacent services (`gateway`, `web-csr`, `web-ssr`) in production mode**, not dev mode.
@@ -95,10 +104,10 @@ SSR_TARGET="http://<web-ssr host>:9763"
 
 ## What I need help with (ask the other session for this)
 
-1. Recommended deployment topology for these 4 Node processes on a VPS (systemd services? Docker Compose? PM2?) — given they're small/low-traffic, and the DB is already external.
-2. Nginx/Caddy config to terminate TLS for `shell.yaaqin.xyz` and reverse-proxy to the `gateway` process on port 9760 (Let's Encrypt cert setup included).
-3. Process supervision/restart-on-boot for all 4 services.
-4. How to safely inject the env vars above per service in production (not committed to git).
-5. Any hardening needed on the `gateway`'s own minimal Express proxy before exposing it publicly (it currently has no TLS, no rate limiting, no request size limits — noted as a "swap for something production-grade" caveat in the project's README).
+1. How to get `docker compose up` running reliably on a VPS long-term — process supervision/restart-on-boot for the Compose stack itself (systemd unit calling `docker compose up -d`? Docker's own `restart: unless-stopped` already in the compose file — is that enough, or do I still want systemd on top?).
+2. Nginx/Caddy config to terminate TLS for `shell.yaaqin.xyz` and reverse-proxy to the published `gateway` port (9760) — Let's Encrypt cert setup included. Also whether `backend`'s published port (9761) needs its own TLS-terminated subdomain, or whether there's a cleaner way to avoid publishing it separately (see the `NEXT_PUBLIC_API_URL` note above).
+3. How to safely get the real secrets into the gitignored `*.env.docker` files on the server (not committed to git) — e.g. scp once vs. a secrets manager, given this is a small single-VPS deployment.
+4. Any hardening needed on the `gateway`'s own minimal Express proxy before exposing it publicly (it currently has no TLS, no rate limiting, no request size limits — noted as a "swap for something production-grade" caveat in the project's README) — should this run behind Nginx/Caddy for that instead of trying to harden the Express proxy itself?
+5. Whether it's worth changing `NEXT_PUBLIC_API_URL`/backend exposure so the browser calls the API through the gateway's own domain (avoiding a second public port/subdomain entirely) — the gateway doesn't currently route anything to `backend`, only to `web-csr`/`web-ssr`.
 
 Full source: `git@github.com:yaaqin/shell-mfe.git` — see its `README.md` for the fuller local-dev writeup this summary is based on.

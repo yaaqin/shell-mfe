@@ -127,6 +127,26 @@ web-csr/     Next.js — client components, localStorage, /login /profile (the o
 web-ssr/     Next.js — Server Actions + proxy.ts, httpOnly cookies, / (home) + /api/auth/callback
 ```
 
+## Running with Docker
+
+Each service has its own `Dockerfile` (multi-stage, production builds — the dev-mode HMR issue above doesn't apply here), plus a root `docker-compose.yml` that wires all four together on one internal network. Confirmed working end-to-end (built, run, and tested through the gateway with real requests — including against the real Postgres DB).
+
+```bash
+# One-time setup: copy each Docker env template and fill in real values
+cp .env.docker.example .env                                    # NEXT_PUBLIC_API_URL (see note below)
+cp backend/.env.docker.example backend/.env.docker              # DB + JWT secrets + CORS_ORIGINS
+cp web-ssr/.env.local.docker.example web-ssr/.env.local.docker  # API_URL (already correct: uses Docker service name)
+cp gateway/.env.docker.example gateway/.env.docker              # already correct: uses Docker service names
+
+docker compose up --build -d
+```
+
+Open **http://localhost:9760** (or whatever port/domain you've mapped it to) — same single entry point as local dev.
+
+**The one thing that needs real thought, not just copy-paste:** `NEXT_PUBLIC_API_URL` (root `.env`) is baked into `web-csr`'s browser bundle at *build* time and is what the **browser** calls directly — it must be a publicly reachable URL (e.g. `https://your-domain:9761` or wherever `backend` actually ends up exposed), never a Docker service name like `http://backend:9761` (the browser has no idea what that means). `web-ssr/.env.local.docker` and `gateway/.env.docker`, by contrast, are server-to-server calls inside the compose network, so their `.env.docker.example` defaults (`http://backend:9761`, `http://web-csr:9762`, `http://web-ssr:9763`) already work as-is.
+
+`docker-compose.yml` publishes `gateway` (9760, the intended public port) and `backend` (9761, needed for the reason above) to the host; `web-csr`/`web-ssr` stay internal-only. In production, put a real TLS terminator (Nginx/Caddy/managed load balancer) in front of both published ports rather than exposing them raw — see the caveat below about the gateway itself having no TLS/rate-limiting built in.
+
 ## Notes / things to change before this becomes more than a behavior test
 
 - Cookies are `secure: false` in dev (no HTTPS on localhost); the code already flips `secure: true` when `NODE_ENV=production`.
