@@ -1,0 +1,15 @@
+{
+  "name": "multiapp",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "install:all": "npm install --prefix backend && npm install --prefix web-csr && npm install --prefix web-ssr",
+    "db:setup": "npm run prisma:generate --prefix backend",
+    "dev": "concurrently -n backend,web-csr,web-ssr -c blue,magenta,green \"npm run start:dev --prefix backend\" \"npm run dev --prefix web-csr\" \"npm run dev --prefix web-ssr\"",
+    "build": "npm run build --prefix backend && npm run build --prefix web-csr && npm run build --prefix web-ssr",
+    "start": "concurrently -n backend,web-csr,web-ssr -c blue,magenta,green \"npm run start --prefix backend\" \"npm run start --prefix web-csr\" \"npm run start --prefix web-ssr\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

@@ -1,0 +1,1470 @@
+generator client {
+  provider = "prisma-client-js"
+  // previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Admin {
+  id        String   @id @default(uuid())
+  username  String   @unique
+  email     String   @unique
+  password  String
+  roleId    String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  createdBy String?
+  sitecode  String?  @db.VarChar(5)
+
+  // ── Core Relations ─────────────────────────
+  role                         Role           @relation(fields: [roleId], references: [id])
+  sites_admins_sitecodeTosites Site?          @relation("admins_sitecodeTosites", fields: [sitecode], references: [sitecode], map: "fk_admins_sitecode")
+  sessions                     SessionToken[]
+
+  // ── Master Data ────────────────────────────
+  sites          Site[]
+  roomTypes      RoomType[]
+  bedTypes       BedType[]
+  facilityTypes  FacilityType[]
+  facilityItems  FacilityItem[]
+  facilityGroups FacilityGroup[]
+  rooms          Room[]
+  images         Image[]
+  menus          Menu[]
+  galleries      Gallery[]
+
+  // ── Access Control ─────────────────────────
+  accessControls AccessControl[]
+
+  // ── Pricing ────────────────────────────────
+  priceProposals     PriceProposal[]
+  priceProposalItems PriceProposalItem[]
+  priceProposalRules PriceProposalRule[]
+  priceRuleConflicts PriceRuleConflict[]
+
+  // ── Booking ────────────────────────────────
+  bookings          Booking[]
+  bookingStatusLogs BookingStatusLog[]
+
+  // ── Maintenance ────────────────────────────
+  maintenanceRequests  RoomMaintenance[]     @relation("MaintenanceRequester")
+  maintenanceReviews   RoomMaintenance[]     @relation("MaintenanceReviewer")
+  maintenanceStarts    RoomMaintenance[]     @relation("MaintenanceStarter")
+  maintenanceCompletes RoomMaintenance[]     @relation("MaintenanceCompleter")
+  maintenanceCancels   RoomMaintenance[]     @relation("MaintenanceCanceller")
+  maintenanceLogs      RoomMaintenanceLog[]
+  withdrawRequests     WithdrawRequest[]
+  restaurants          Restaurant[]
+  restaurantAdmins     RestaurantAdmin[]
+  restaurantOwnerships RestaurantOwnership[]
+  restaurantSites      RestaurantSite[]
+  partnershipProposals PartnershipProposal[]
+
+  proposalsCreated  PartnershipProposal[] @relation("ProposalCreator")
+  proposalsReviewed PartnershipProposal[] @relation("ProposalReviewer")
+  restaurantStaffs  RestaurantStaff[]
+
+  foodCategoriesCreated  FoodCategory[] @relation("FoodCategoryCreator")
+  foodCategoriesReviewed FoodCategory[] @relation("FoodCategoryReviewer")
+
+  @@index([sitecode], map: "idx_admins_sitecode")
+  @@map("admins")
+}
+
+model Role {
+  id             String          @id @default(uuid())
+  name           String          @unique
+  description    String?
+  level          Int
+  createdAt      DateTime        @default(now())
+  createdBy      String?
+  admins         Admin[]
+  accessControls AccessControl[]
+
+  @@map("roles")
+}
+
+model Site {
+  id                            String    @id @default(uuid())
+  nama                          String
+  lokasi                        String
+  createdBy                     String
+  isActive                      Boolean   @default(true)
+  createdAt                     DateTime  @default(now())
+  updatedAt                     DateTime  @updatedAt
+  sitecode                      String    @unique(map: "sites_sitecode_unique") @db.VarChar(5)
+  admins_admins_sitecodeTosites Admin[]   @relation("admins_sitecodeTosites")
+  creator                       Admin     @relation(fields: [createdBy], references: [id])
+  rooms                         Room[]
+  bookings                      Booking[]
+
+  allowReReschedule Boolean          @default(false)
+  restaurantSites   RestaurantSite[]
+
+  @@map("sites")
+}
+
+model SessionToken {
+  id        String    @id @default(uuid())
+  adminId   String
+  token     String    @unique
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  expiredAt DateTime?
+  admin     Admin     @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@map("session_tokens")
+}
+
+model RoomType {
+  id        String   @id @default(uuid())
+  imageId   String?
+  createdAt DateTime @default(now())
+  createdBy String
+
+  creator            Admin                 @relation(fields: [createdBy], references: [id])
+  image              Image?                @relation(fields: [imageId], references: [id])
+  translations       RoomTypeTranslation[]
+  rooms              Room[]
+  priceProposalItems PriceProposalItem[]
+  bookingItems       BookingItem[]
+
+  @@map("room_types")
+}
+
+model RoomTypeTranslation {
+  id         String  @id @default(uuid())
+  roomTypeId String
+  lang       String  @db.VarChar(5)
+  name       String
+  desk       String?
+
+  roomType RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([roomTypeId, lang])
+  @@map("room_type_translations")
+}
+
+model BedType {
+  id   String @id @default(uuid())
+  code String @unique
+
+  createdBy String
+  creator   Admin  @relation(fields: [createdBy], references: [id])
+
+  translations BedTypeTranslation[]
+  rooms        Room[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("bed_types")
+}
+
+model BedTypeTranslation {
+  id        String @id @default(uuid())
+  bedTypeId String
+  lang      String
+
+  name        String
+  size        String
+  description String
+
+  bedType BedType @relation(fields: [bedTypeId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([bedTypeId, lang])
+  @@map("bed_type_translations")
+}
+
+model FacilityType {
+  id        String   @id @default(uuid())
+  code      String   @unique @db.Char(5)
+  note      String?
+  createdAt DateTime @default(now())
+  createdBy String
+
+  creator       Admin                     @relation(fields: [createdBy], references: [id])
+  translations  FacilityTypeTranslation[]
+  facilityItems FacilityItem[]
+
+  @@map("facility_types")
+}
+
+model FacilityTypeTranslation {
+  id             String @id @default(uuid())
+  facilityTypeId String
+  lang           String @db.VarChar(5)
+  name           String
+
+  facilityType FacilityType @relation(fields: [facilityTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([facilityTypeId, lang])
+  @@map("facility_type_translations")
+}
+
+model FacilityItem {
+  id        String   @id @default(uuid())
+  code      String   @db.Char(4)
+  typeId    String
+  note      String?
+  createdAt DateTime @default(now())
+  createdBy String
+
+  // relations
+  type         FacilityType              @relation(fields: [typeId], references: [id])
+  creator      Admin                     @relation(fields: [createdBy], references: [id])
+  translations FacilityItemTranslation[]
+
+  @@unique([code])
+  @@index([typeId])
+  @@map("facility_items")
+}
+
+model FacilityItemTranslation {
+  id             String @id @default(uuid())
+  facilityItemId String
+  lang           String
+  name           String
+
+  // relations
+  facilityItem FacilityItem @relation(fields: [facilityItemId], references: [id])
+
+  @@unique([facilityItemId, lang])
+  @@index([lang])
+  @@map("facility_item_translations")
+}
+
+model FacilityGroup {
+  id        String   @id @default(uuid())
+  code      String   @unique @db.VarChar(10)
+  note      String?
+  facility  String[] // array of FacilityItem IDs
+  createdAt DateTime @default(now())
+  createdBy String
+
+  creator Admin  @relation(fields: [createdBy], references: [id])
+  rooms   Room[]
+
+  @@map("facility_groups")
+}
+
+model Room {
+  id              String   @id // format: JKT0101001
+  siteCode        String   @db.VarChar(5)
+  number          String   @db.Char(5) // 01001
+  floorId         String   @db.Char(2) // 01-99
+  roomTypeId      String
+  bedTypeId       String
+  facilityGroupId String
+  galleryId       String?
+  createdAt       DateTime @default(now())
+  createdBy       String
+
+  site          Site          @relation(fields: [siteCode], references: [sitecode])
+  roomType      RoomType      @relation(fields: [roomTypeId], references: [id])
+  bedType       BedType       @relation(fields: [bedTypeId], references: [id])
+  facilityGroup FacilityGroup @relation(fields: [facilityGroupId], references: [id])
+  gallery       Gallery?      @relation(fields: [galleryId], references: [id])
+  creator       Admin         @relation(fields: [createdBy], references: [id])
+
+  bookingItems     BookingItem[]
+  availabilities   RoomAvailability[]
+  roomMaintenances RoomMaintenance[]
+
+  @@unique([siteCode, number])
+  @@index([siteCode])
+  @@index([floorId])
+  @@map("rooms")
+}
+
+model Menu {
+  id        String   @id @default(uuid())
+  level     Int // 1=sidebar, 2=navbar parent, 3=navbar child, 4=standalone
+  code      String?  @unique @db.VarChar(50)
+  parentId  String?
+  path      String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  createdBy String
+
+  parent         Menu?             @relation("MenuChildren", fields: [parentId], references: [id])
+  children       Menu[]            @relation("MenuChildren")
+  creator        Admin             @relation(fields: [createdBy], references: [id])
+  translations   MenuTranslation[]
+  accessControls AccessControl[]
+
+  @@map("menus")
+}
+
+model MenuTranslation {
+  menuId String
+  lang   String @db.VarChar(10)
+  name   String
+
+  menu Menu @relation(fields: [menuId], references: [id], onDelete: Cascade)
+
+  @@id([menuId, lang])
+  @@map("menu_translations")
+}
+
+model AccessControl {
+  id        String   @id @default(uuid())
+  roleId    String
+  menuId    String
+  isAccess  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  createdBy String
+
+  role    Role  @relation(fields: [roleId], references: [id])
+  menu    Menu  @relation(fields: [menuId], references: [id])
+  creator Admin @relation(fields: [createdBy], references: [id])
+
+  @@unique([roleId, menuId])
+  @@map("access_controls")
+}
+
+model Image {
+  id        String   @id @default(uuid())
+  url       String
+  name      String
+  createdAt DateTime @default(now())
+  createdBy String
+
+  creator   Admin      @relation(fields: [createdBy], references: [id])
+  roomTypes RoomType[]
+
+  @@map("images")
+}
+
+model Gallery {
+  id        String   @id @default(uuid())
+  title     String   @unique
+  imageIds  String[]
+  createdAt DateTime @default(now())
+  createdBy String
+
+  creator Admin  @relation(fields: [createdBy], references: [id])
+  rooms   Room[]
+
+  @@map("galleries")
+}
+
+model PriceProposal {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  startDate   DateTime
+  endDate     DateTime
+  status      String   @default("DRAFT")
+  // DRAFT | REVIEWED | APPROVED | REJECTED
+
+  createdAt DateTime @default(now())
+  createdBy String
+
+  creator Admin               @relation(fields: [createdBy], references: [id])
+  items   PriceProposalItem[]
+
+  @@map("price_proposals")
+}
+
+model PriceProposalItem {
+  id              String @id @default(uuid())
+  priceProposalId String
+  roomTypeId      String
+  basePrice       Int
+
+  createdAt DateTime @default(now())
+  createdBy String
+
+  proposal PriceProposal       @relation(fields: [priceProposalId], references: [id], onDelete: Cascade)
+  roomType RoomType            @relation(fields: [roomTypeId], references: [id])
+  creator  Admin               @relation(fields: [createdBy], references: [id])
+  rules    PriceProposalRule[]
+
+  @@unique([priceProposalId, roomTypeId])
+  @@map("price_proposal_items")
+}
+
+model PriceProposalRule {
+  id                  String @id @default(uuid())
+  priceProposalItemId String
+
+  ruleType String
+  // SPECIFIC_DATE | DATE_RANGE | WEEKEND
+
+  startDate DateTime?
+  endDate   DateTime?
+  date      DateTime?
+
+  adjustment String
+  // FIXED_PRICE | PERCENTAGE
+
+  value    Int
+  priority Int
+
+  createdAt DateTime @default(now())
+  createdBy String
+
+  item    PriceProposalItem @relation(fields: [priceProposalItemId], references: [id], onDelete: Cascade)
+  creator Admin             @relation(fields: [createdBy], references: [id])
+
+  conflictsAsA PriceRuleConflict[] @relation("RuleA")
+  conflictsAsB PriceRuleConflict[] @relation("RuleB")
+
+  @@index([priceProposalItemId])
+  @@index([ruleType])
+  @@map("price_proposal_rules")
+}
+
+model PriceRuleConflict {
+  id      String @id @default(uuid())
+  ruleIdA String
+  ruleIdB String
+
+  conflictType String
+  // DATE_OVERLAP | PRIORITY_CONFLICT | DUPLICATE_RULE
+
+  note String?
+
+  createdAt DateTime @default(now())
+  createdBy String
+
+  ruleA   PriceProposalRule @relation("RuleA", fields: [ruleIdA], references: [id], onDelete: Cascade)
+  ruleB   PriceProposalRule @relation("RuleB", fields: [ruleIdB], references: [id], onDelete: Cascade)
+  creator Admin             @relation(fields: [createdBy], references: [id])
+
+  @@unique([ruleIdA, ruleIdB])
+  @@map("price_rule_conflicts")
+}
+
+model BookingContact {
+  id          String  @id @default(uuid())
+  bookingId   String  @unique
+  fullName    String
+  email       String
+  phone       String
+  idType      String // KTP | PASSPORT | SIM
+  idNumber    String
+  nationality String?
+  address     String?
+  note        String? // catatan khusus dari tamu
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@map("booking_contacts")
+}
+
+model Booking {
+  id           String   @id @default(uuid())
+  bookingCode  String   @unique
+  siteCode     String
+  checkInDate  DateTime
+  checkOutDate DateTime
+  totalAmount  Int
+  status       String   @default("PENDING")
+  // PENDING | CONFIRMED | CANCELLED | CHECKED_IN | CHECKED_OUT
+
+  payment BookingPayment?
+
+  createdAt DateTime @default(now())
+  createdBy String?
+
+  userId String
+  user   User?  @relation(fields: [userId], references: [id])
+
+  site          Site                 @relation(fields: [siteCode], references: [sitecode])
+  creator       Admin?               @relation(fields: [createdBy], references: [id])
+  contact       BookingContact?
+  items         BookingItem[]
+  statusLogs    BookingStatusLog[]
+  refundRequest RefundRequest?
+  creditUsages  BookingCreditUsage[]
+
+  creditAmount  Int @default(0)
+  paymentAmount Int @default(0)
+
+  // Reschedule chain
+  rescheduledFromId String?
+  rescheduledFrom   Booking?  @relation("RescheduleChain", fields: [rescheduledFromId], references: [id])
+  rescheduledTo     Booking[] @relation("RescheduleChain") // one-to-many
+
+  // Reschedule request relations
+  rescheduleAsOriginal RescheduleRequest? @relation("RescheduleOriginal")
+  rescheduleAsNew      RescheduleRequest? @relation("RescheduleNew")
+  rescheduleRequest    RescheduleRequest? @relation(fields: [rescheduleRequestId], references: [id])
+  rescheduleRequestId  String?
+
+  rescheduleCount Int @default(0)
+
+  @@map("bookings")
+}
+
+model BookingItem {
+  id         String  @id @default(uuid())
+  bookingId  String
+  roomTypeId String
+  roomId     String? // null sampai assign actual room
+
+  pricePerNight Int
+  nights        Int
+  subtotal      Int
+
+  booking  Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  roomType RoomType @relation(fields: [roomTypeId], references: [id])
+  room     Room?    @relation(fields: [roomId], references: [id])
+
+  @@map("booking_items")
+}
+
+model BookingStatusLog {
+  id         String   @id @default(uuid())
+  bookingId  String
+  fromStatus String? // null kalau ini entry pertama
+  toStatus   String
+  note       String?
+  createdAt  DateTime @default(now())
+  createdBy  String? // adminId yang ngubah status
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  actor   Admin?  @relation(fields: [createdBy], references: [id])
+
+  @@index([bookingId])
+  @@map("booking_status_logs")
+}
+
+model RoomAvailability {
+  id       String   @id @default(uuid())
+  roomId   String
+  date     DateTime
+  isBooked Boolean  @default(false)
+
+  room Room @relation(fields: [roomId], references: [id])
+
+  @@unique([roomId, date])
+  @@map("room_availabilities")
+}
+
+model BookingPayment {
+  id         String  @id @default(uuid())
+  bookingId  String  @unique
+  snapToken  String?
+  paymentUrl String?
+  method     String? // QRIS | GOPAY | BCA_VA | BNI_VA | BRI_VA | SGT
+  status     String  @default("PENDING")
+  // PENDING | SUCCESS | EXPIRED | FAILED
+
+  // Virtual Account
+  vaNumber String?
+  vaBank   String?
+
+  // QRIS / Gopay
+  qrisUrl  String?
+  deeplink String?
+
+  // Mandiri VA
+  billerCode String?
+  billKey    String?
+
+  // ── SGT / Sui (TAMBAHAN BARU) ──────────────────────
+  sgtAmountDue    Float? // jumlah SGT yang harus dibayar
+  sgtSenderWallet String? // wallet address user (untuk verifikasi)
+  sgtTxDigest     String? // Sui transaction digest setelah confirmed
+  sgtConfirmedAt  DateTime? // waktu event di-catch listener
+  // ───────────────────────────────────────────────────
+
+  expiredAt DateTime?
+  paidAt    DateTime?
+
+  createdAt DateTime @default(now())
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@map("booking_payments")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String?
+  avatarUrl String?
+  googleId  String?  @unique
+  phone     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // ── TAMBAHAN: identitas chat ─────────────────
+  username      String? // display form, case sensitive: "Yaa.Qin"
+  usernameLower String?   @unique // dedup case-insensitive: "yaa.qin"
+  usernameSetAt DateTime?
+  // ─────────────────────────────────────────────
+
+  bookings         Booking[]
+  bookingCredits   BookingCredit[]
+  withdrawRequests WithdrawRequest[]
+  foodOrders       FoodOrder[]
+  waSessions       WaSession[]
+
+  // ── TAMBAHAN: relasi chat ────────────────────
+  conversationParticipants ConversationParticipant[]
+  messages                 Message[]
+  // ─────────────────────────────────────────────
+
+  @@map("users")
+}
+
+model RefundPolicy {
+  id            String   @id @default(uuid())
+  name          String
+  minDays       Int // ← ganti dari daysThreshold
+  maxDays       Int? // ← tambah ini
+  refundPercent Int
+  allowCredit   Boolean  @default(true)
+  allowCash     Boolean  @default(true)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  createdBy     String
+
+  refundRequests RefundRequest[]
+
+  @@map("refund_policies")
+}
+
+model RefundRequest {
+  id         String  @id @default(uuid())
+  bookingId  String  @unique // 1 booking 1 request
+  userId     String
+  reason     String?
+  refundType String? // CASH | CREDIT
+  status     String  @default("PENDING")
+  // PENDING | APPROVED | REJECTED | PROCESSED
+
+  policyId       String?
+  refundPercent  Int // snapshot saat request dibuat
+  originalAmount Int
+  refundAmount   Int // hasil kalkulasi
+  penaltyAmount  Int // originalAmount - refundAmount
+
+  // Cash only — earliest processable date (requestedAt + 4 hari kerja)
+  canProcessAt DateTime?
+  processedAt  DateTime?
+  processedBy  String? // adminId
+
+  note        String? // admin note
+  requestedAt DateTime @default(now())
+
+  booking Booking       @relation(fields: [bookingId], references: [id])
+  policy  RefundPolicy? @relation(fields: [policyId], references: [id])
+
+  @@map("refund_requests")
+}
+
+model BookingCredit {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  code      String   @unique
+  balance   Int
+  expiredAt DateTime
+  status    String   @default("ACTIVE")
+  // ACTIVE | EXPIRED
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user             User                 @relation(fields: [userId], references: [id])
+  logs             BookingCreditLog[]
+  usages           BookingCreditUsage[]
+  withdrawRequests WithdrawRequest[]
+
+  @@index([userId])
+  @@index([status])
+  @@map("booking_credits")
+}
+
+model BookingCreditLog {
+  id           String   @id @default(uuid())
+  creditId     String
+  type         String
+  // ADD | DEDUCT
+  amount       Int
+  balanceAfter Int
+  // snapshot balance setelah transaksi — penting buat audit trail
+  sourceType   String
+  // REFUND | USAGE | EXPIRED | MANUAL
+  sourceId     String?
+  // refundRequestId | bookingId | null kalau MANUAL
+  note         String?
+  createdAt    DateTime @default(now())
+
+  credit BookingCredit @relation(fields: [creditId], references: [id], onDelete: Cascade)
+
+  @@index([creditId])
+  @@index([sourceType])
+  @@map("booking_credit_logs")
+}
+
+model BookingCreditUsage {
+  id         String   @id @default(uuid())
+  creditId   String
+  bookingId  String
+  amountUsed Int
+  usedAt     DateTime @default(now())
+
+  credit  BookingCredit @relation(fields: [creditId], references: [id])
+  booking Booking       @relation(fields: [bookingId], references: [id])
+
+  @@map("booking_credit_usages")
+}
+
+model RoomMaintenance {
+  id     String @id @default(uuid())
+  roomId String
+
+  startDate DateTime
+  endDate   DateTime
+  priority  String
+  // ROUTINE | URGENT | EMERGENCY
+
+  status String @default("REQUESTED")
+  // REQUESTED | APPROVED | REJECTED | IN_PROGRESS | COMPLETED | CANCELLED
+
+  // ── Inisiator ──────────────────────────
+  requestNote String // WAJIB — keterangan pengajuan
+  requestedAt DateTime @default(now())
+  requestedBy String
+
+  // ── Reviewer ───────────────────────────
+  reviewNote String? // opsional — alasan approve/reject
+  reviewedAt DateTime?
+  reviewedBy String?
+
+  // ── Executor ───────────────────────────
+  startedAt DateTime?
+  startedBy String?
+
+  // ── Completion ─────────────────────────
+  completionNote String? // opsional — keterangan hasil perbaikan
+  completedAt    DateTime?
+  completedBy    String?
+
+  // ── Cancellation ───────────────────────
+  // hanya valid dari REQUESTED dan APPROVED
+  cancelNote  String?
+  cancelledAt DateTime?
+  cancelledBy String?
+
+  room      Room   @relation(fields: [roomId], references: [id])
+  requester Admin  @relation("MaintenanceRequester", fields: [requestedBy], references: [id])
+  reviewer  Admin? @relation("MaintenanceReviewer", fields: [reviewedBy], references: [id])
+  starter   Admin? @relation("MaintenanceStarter", fields: [startedBy], references: [id])
+  completer Admin? @relation("MaintenanceCompleter", fields: [completedBy], references: [id])
+  canceller Admin? @relation("MaintenanceCanceller", fields: [cancelledBy], references: [id])
+
+  logs RoomMaintenanceLog[]
+
+  @@index([roomId])
+  @@index([status])
+  @@index([startDate, endDate])
+  @@map("room_maintenances")
+}
+
+model RoomMaintenanceLog {
+  id            String   @id @default(uuid())
+  maintenanceId String
+  fromStatus    String?
+  toStatus      String
+  note          String?
+  createdAt     DateTime @default(now())
+  createdBy     String
+
+  maintenance RoomMaintenance @relation(fields: [maintenanceId], references: [id], onDelete: Cascade)
+  actor       Admin           @relation(fields: [createdBy], references: [id])
+
+  @@index([maintenanceId])
+  @@map("room_maintenance_logs")
+}
+
+model WithdrawRequest {
+  id       String @id @default(uuid())
+  userId   String
+  creditId String
+
+  // Nominal
+  amountIdr    Int // IDR yang di-wd
+  rateSnapshot Float // rate IDR/SGD saat request (e.g 11500.50)
+  amountSgt    Float // hasil konversi (amountIdr / rateSnapshot)
+
+  // Sui
+  walletAddress String // Sui wallet address tujuan (0x...)
+  txHash        String? // Sui transaction digest setelah mint
+
+  // Status
+  status String @default("PENDING")
+  // PENDING | PROCESSING | COMPLETED | FAILED | CANCELLED
+
+  note String? // admin note kalau reject/failed
+
+  requestedAt DateTime  @default(now())
+  processedAt DateTime?
+  processedBy String? // adminId yang approve & trigger mint
+
+  user   User          @relation(fields: [userId], references: [id])
+  credit BookingCredit @relation(fields: [creditId], references: [id])
+  admin  Admin?        @relation(fields: [processedBy], references: [id])
+
+  // Backing log reference
+  backingLog SgtBackingLog?
+
+  @@index([userId])
+  @@index([status])
+  @@map("withdraw_requests")
+}
+
+model SgtBackingLog {
+  id         String  @id @default(uuid())
+  withdrawId String? @unique
+  type       String
+  // MINT | BURN | PAYMENT_IN | CASHOUT
+
+  amountSgt    Float
+  amountIdr    Float
+  rateSnapshot Float
+
+  txHash String? // Sui tx digest
+
+  totalSgtBefore Float // snapshot sebelum transaksi
+  totalSgtAfter  Float // snapshot sesudah transaksi
+  totalIdrBefore Float
+  totalIdrAfter  Float
+
+  createdAt DateTime @default(now())
+  createdBy String? // adminId atau userId
+
+  withdrawRequest WithdrawRequest? @relation(fields: [withdrawId], references: [id])
+
+  @@index([type])
+  @@map("sgt_backing_logs")
+}
+
+model SgtBackingState {
+  id              String   @id @default("singleton")
+  totalIdrBacking Float    @default(0)
+  totalSgtMinted  Float    @default(0)
+  totalSgtBurned  Float    @default(0)
+  updatedAt       DateTime @updatedAt
+
+  @@map("sgt_backing_state")
+}
+
+model ReschedulePolicy {
+  id                String   @id @default(uuid())
+  name              String
+  minDays           Int
+  maxDays           Int?
+  reschedulePercent Int
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  createdBy         String
+
+  rescheduleRequests RescheduleRequest[]
+
+  @@map("reschedule_policies")
+}
+
+model RescheduleRequest {
+  id           String @id @default(uuid())
+  bookingId    String @unique // booking LAMA
+  newBookingId String @unique // booking BARU hasil reschedule
+
+  policyId          String?
+  reschedulePercent Int // % nilai yang dipertahankan
+  originalAmount    Int // totalAmount booking lama
+  retainedAmount    Int // originalAmount * reschedulePercent / 100
+  newBookingAmount  Int // harga booking baru
+
+  extraCharge  Int @default(0) // user harus bayar (newBookingAmount > retainedAmount)
+  creditIssued Int @default(0) // masuk credit (retainedAmount > newBookingAmount)
+
+  requestedAt DateTime @default(now())
+  requestedBy String // userId
+
+  booking    Booking           @relation("RescheduleOriginal", fields: [bookingId], references: [id])
+  newBooking Booking           @relation("RescheduleNew", fields: [newBookingId], references: [id])
+  policy     ReschedulePolicy? @relation(fields: [policyId], references: [id])
+  bookings   Booking[]
+
+  @@map("reschedule_requests")
+}
+
+// ─────────────────────────────────────────────
+// RESTAURANT & AUTH
+// ─────────────────────────────────────────────
+
+model Restaurant {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  logoUrl     String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  createdBy   String // adminId hotel yang create
+
+  creator          Admin                 @relation(fields: [createdBy], references: [id])
+  ownerships       RestaurantOwnership[]
+  restaurantSites  RestaurantSite[]
+  restaurantStaffs RestaurantStaff[]
+
+  @@map("restaurants")
+}
+
+model RestaurantAdmin {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  phone     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  createdBy String // adminId hotel yang create
+
+  creator          Admin                    @relation(fields: [createdBy], references: [id])
+  sessions         RestaurantAdminSession[]
+  ownerships       RestaurantOwnership[]
+  siteAccess       RestaurantSiteAdmin[]
+  restaurantStaffs RestaurantStaff[]
+  foodCategories   FoodCategory[]
+
+  @@map("restaurant_admins")
+}
+
+model RestaurantAdminSession {
+  id                String    @id @default(uuid())
+  restaurantAdminId String
+  token             String    @unique
+  isActive          Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  expiredAt         DateTime?
+
+  restaurantAdmin RestaurantAdmin @relation(fields: [restaurantAdminId], references: [id], onDelete: Cascade)
+
+  @@map("restaurant_admin_sessions")
+}
+
+// Max 3 owner per restaurant — enforce di aplikasi level
+model RestaurantOwnership {
+  id                String   @id @default(uuid())
+  restaurantId      String
+  restaurantAdminId String
+  assignedAt        DateTime @default(now())
+  assignedBy        String // adminId hotel
+
+  restaurant      Restaurant      @relation(fields: [restaurantId], references: [id])
+  restaurantAdmin RestaurantAdmin @relation(fields: [restaurantAdminId], references: [id])
+  assigner        Admin           @relation(fields: [assignedBy], references: [id])
+
+  @@unique([restaurantId, restaurantAdminId])
+  @@map("restaurant_ownerships")
+}
+
+// Kehadiran 1 restaurant di 1 site hotel
+model RestaurantSite {
+  id           String   @id @default(uuid())
+  restaurantId String
+  siteCode     String   @db.VarChar(5)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  createdBy    String // adminId hotel
+
+  restaurant      Restaurant            @relation(fields: [restaurantId], references: [id])
+  site            Site                  @relation(fields: [siteCode], references: [sitecode])
+  creator         Admin                 @relation(fields: [createdBy], references: [id])
+  siteAdmins      RestaurantSiteAdmin[]
+  proposals       PartnershipProposal[]
+  products        Product[]
+  orders          FoodOrder[]
+  monthlyBillings MonthlyBilling[]
+
+  @@unique([restaurantId, siteCode])
+  @@map("restaurant_sites")
+}
+
+enum RestaurantSiteRole {
+  MANAGER
+  KITCHEN_STAFF
+  CASHIER
+}
+
+// Assign RestaurantAdmin ke site tertentu dengan role tertentu
+model RestaurantSiteAdmin {
+  id                String             @id @default(uuid())
+  restaurantSiteId  String
+  restaurantAdminId String
+  role              RestaurantSiteRole
+  // MANAGER | KITCHEN_STAFF | CASHIER
+  assignedAt        DateTime           @default(now())
+  assignedBy        String // restaurantAdminId (owner yang assign)
+
+  restaurantSite  RestaurantSite  @relation(fields: [restaurantSiteId], references: [id])
+  restaurantAdmin RestaurantAdmin @relation(fields: [restaurantAdminId], references: [id])
+
+  @@unique([restaurantSiteId, restaurantAdminId])
+  @@map("restaurant_site_admins")
+}
+
+// ─────────────────────────────────────────────
+// PARTNERSHIP
+// ─────────────────────────────────────────────
+
+model PartnershipProposal {
+  id               String @id @default(uuid())
+  restaurantSiteId String
+  type             String
+  // SUBSCRIPTION | REVENUE_SHARE
+
+  // SUBSCRIPTION only
+  flatFeeMonthly       Float?
+  monthlyCapIdr        Float?
+  surchargeAfterCapPct Float? // persentase naik harga setelah cap
+
+  // REVENUE_SHARE only
+  revenueSharePct Float? // persentase naik harga dari awal
+
+  freePeriodDays Int      @default(0)
+  startDate      DateTime // kapan billing & charge mulai aktif
+
+  status String @default("DRAFT")
+  // DRAFT | PENDING_APPROVAL | APPROVED | REJECTED | ACTIVE | EXPIRED | TERMINATED
+
+  note       String?
+  createdAt  DateTime  @default(now())
+  createdBy  String // adminId hotel
+  reviewedBy String? // adminId hotel (manager)
+  reviewedAt DateTime?
+  reviewNote String?
+
+  restaurantSite RestaurantSite   @relation(fields: [restaurantSiteId], references: [id])
+  creator        Admin            @relation("ProposalCreator", fields: [createdBy], references: [id])
+  reviewer       Admin?           @relation("ProposalReviewer", fields: [reviewedBy], references: [id])
+  billings       MonthlyBilling[]
+  admin          Admin?           @relation(fields: [adminId], references: [id])
+  adminId        String?
+
+  @@map("partnership_proposals")
+}
+
+// Snapshot billing bulanan per restaurant site
+// Friendly buat reporting
+model MonthlyBilling {
+  id               String @id @default(uuid())
+  restaurantSiteId String
+  proposalId       String
+  year             Int
+  month            Int // 1-12
+
+  flatFeeAmount Float     @default(0) // tagihan flat fee bulan ini
+  totalRevenue  Float     @default(0) // total revenue bulan ini (accumulate dari order)
+  capAmount     Float     @default(0) // snapshot cap dari proposal saat itu
+  isCapExceeded Boolean   @default(false)
+  capExceededAt DateTime? // kapan pertama kali cap terlewat bulan ini
+
+  status String @default("PENDING")
+  // PENDING | PAID | OVERDUE | WAIVED
+
+  paidAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  restaurantSite RestaurantSite      @relation(fields: [restaurantSiteId], references: [id])
+  proposal       PartnershipProposal @relation(fields: [proposalId], references: [id])
+
+  @@unique([restaurantSiteId, year, month])
+  @@index([year, month])
+  @@index([status])
+  @@map("monthly_billings")
+}
+
+// ─────────────────────────────────────────────
+// PRODUCT (Menu Makanan)
+// ─────────────────────────────────────────────
+
+// Stok harian — diset oleh kitchen staff tiap hari
+model ProductDailyStock {
+  id          String   @id @default(uuid())
+  productId   String
+  date        DateTime @db.Date
+  stock       Int // jumlah stok hari ini
+  remaining   Int // sisa stok real-time
+  isAvailable Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  createdBy   String // restaurantAdminId (kitchen staff)
+
+  product Product @relation(fields: [productId], references: [id])
+
+  @@unique([productId, date])
+  @@index([date])
+  @@map("product_daily_stocks")
+}
+
+// Audit trail perubahan stok
+model ProductStockLog {
+  id             String   @id @default(uuid())
+  productId      String
+  date           DateTime @db.Date
+  type           String
+  // SET | DEDUCT | RESTOCK
+  amount         Int
+  remainingAfter Int
+  note           String?
+  createdAt      DateTime @default(now())
+  createdBy      String // restaurantAdminId
+
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([productId])
+  @@index([date])
+  @@map("product_stock_logs")
+}
+
+// ─────────────────────────────────────────────
+// ORDER
+// ─────────────────────────────────────────────
+
+model FoodOrder {
+  id               String    @id @default(uuid())
+  orderCode        String    @unique
+  restaurantSiteId String
+  type             String
+  confirmedAt      DateTime?
+  // ONLINE | WALK_IN
+
+  userId    String? // null kalau WALK_IN
+  cashierId String? // restaurantAdminId cashier yang input
+
+  // Snapshot pricing info buat reporting
+  totalBaseAmount Float // total sebelum surcharge
+  surchargeAmount Float @default(0) // total surcharge yang dikenakan
+  totalAmount     Float // final amount = base + surcharge
+
+  // Snapshot apakah order ini kena surcharge
+  isSurcharged  Boolean @default(false)
+  surchargeType String? // SUBSCRIPTION_CAP | REVENUE_SHARE
+  surchargePct  Float? // persentase surcharge yang berlaku saat order
+
+  status String @default("PENDING")
+  // PENDING | CONFIRMED | IN_PROGRESS | READY | COMPLETED | CANCELLED
+
+  note      String?
+  createdAt DateTime @default(now())
+
+  restaurantSite RestaurantSite       @relation(fields: [restaurantSiteId], references: [id])
+  user           User?                @relation(fields: [userId], references: [id])
+  items          FoodOrderItem[]
+  payment        FoodOrderPayment?
+  statusLogs     FoodOrderStatusLog[]
+
+  @@index([restaurantSiteId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("food_orders")
+}
+
+model FoodOrderItem {
+  id        String @id @default(uuid())
+  orderId   String
+  productId String
+
+  // Snapshot harga saat order — penting buat reporting
+  productName     String // snapshot nama produk
+  basePrice       Float // snapshot base price
+  discountAmount  Float  @default(0)
+  surchargeAmount Float  @default(0)
+  finalPrice      Float // harga akhir per item
+  quantity        Int
+  subtotal        Float // finalPrice * quantity
+
+  note String?
+
+  order   FoodOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product   @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+  @@map("food_order_items")
+}
+
+model FoodOrderPayment {
+  id        String    @id @default(uuid())
+  orderId   String    @unique
+  method    String?
+  // CASH | QRIS | GOPAY | BCA_VA | dll
+  status    String    @default("PENDING")
+  vaNumber  String?
+  vaBank    String?
+  // PENDING | SUCCESS | FAILED | EXPIRED
+  amount    Float
+  paidAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  order FoodOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("food_order_payments")
+}
+
+model FoodOrderStatusLog {
+  id         String   @id @default(uuid())
+  orderId    String
+  fromStatus String?
+  toStatus   String
+  note       String?
+  createdAt  DateTime @default(now())
+  createdBy  String? // restaurantAdminId yang ubah status
+
+  order FoodOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("food_order_status_logs")
+}
+
+model ProductImage {
+  id        String   @id @default(uuid())
+  productId String
+  url       String
+  order     Int      @default(0) // urutan tampil, max 5
+  createdAt DateTime @default(now())
+  createdBy String // restaurantAdminId
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@map("product_images")
+}
+
+model Product {
+  id               String   @id @default(uuid())
+  restaurantSiteId String
+  foodCategoryId   String
+  basePrice        Float
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  createdBy        String
+  updatedAt        DateTime @updatedAt
+
+  restaurantSite RestaurantSite       @relation(fields: [restaurantSiteId], references: [id])
+  foodCategory   FoodCategory         @relation(fields: [foodCategoryId], references: [id])
+  translations   ProductTranslation[]
+  images         ProductImage[]
+  discountRules  ProductDiscount[]
+  dailyStocks    ProductDailyStock[]
+  stockLogs      ProductStockLog[]
+  orderItems     FoodOrderItem[]
+
+  @@index([restaurantSiteId])
+  @@index([foodCategoryId])
+  @@map("products")
+}
+
+model ProductTranslation {
+  id          String  @id @default(uuid())
+  productId   String
+  lang        String  @db.VarChar(5)
+  name        String
+  description String?
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, lang])
+  @@map("product_translations")
+}
+
+// Diskon opsional — dihitung dari basePrice
+model ProductDiscount {
+  id        String    @id @default(uuid())
+  productId String
+  name      String
+  type      String
+  // FIXED_PRICE | PERCENTAGE
+  value     Float
+  startDate DateTime?
+  endDate   DateTime?
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  createdBy String // restaurantAdminId (manager)
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@map("product_discounts")
+}
+
+model RestaurantStaff {
+  id                String   @id @default(uuid())
+  restaurantId      String
+  restaurantAdminId String
+  isActive          Boolean  @default(true)
+  assignedAt        DateTime @default(now())
+  assignedBy        String
+
+  restaurant      Restaurant      @relation(fields: [restaurantId], references: [id])
+  restaurantAdmin RestaurantAdmin @relation(fields: [restaurantAdminId], references: [id])
+  assigner        Admin           @relation(fields: [assignedBy], references: [id])
+
+  @@unique([restaurantId, restaurantAdminId])
+  @@map("restaurant_staffs")
+}
+
+model FoodCategory {
+  id       String  @id @default(uuid())
+  code     String  @unique
+  isGlobal Boolean @default(false)
+  status   String  @default("PENDING")
+  isActive Boolean @default(true)
+
+  createdByAdminId           String?
+  createdByRestaurantAdminId String?
+  reviewedBy                 String?
+  reviewedAt                 DateTime?
+  reviewNote                 String?
+  createdAt                  DateTime  @default(now())
+
+  hotelAdmin      Admin?           @relation("FoodCategoryCreator", fields: [createdByAdminId], references: [id])
+  restaurantAdmin RestaurantAdmin? @relation(fields: [createdByRestaurantAdminId], references: [id])
+  reviewer        Admin?           @relation("FoodCategoryReviewer", fields: [reviewedBy], references: [id])
+
+  translations FoodCategoryTranslation[]
+  products     Product[]
+
+  @@map("food_categories")
+}
+
+model FoodCategoryTranslation {
+  id          String  @id @default(uuid())
+  categoryId  String
+  lang        String  @db.VarChar(5)
+  name        String
+  description String?
+
+  category FoodCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([categoryId, lang])
+  @@map("food_category_translations")
+}
+
+model WaSession {
+  id           String   @id @default(uuid())
+  waNumber     String   @unique // nomor WA tamu
+  userId       String? // link ke User kalau sudah login/dikenali
+  role         String   @default("GUEST") // GUEST | OWNER | MANAGER
+  context      Json? // session state chatbot (step booking, dll)
+  history      Json? // conversation history (array messages)
+  lastActiveAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@map("wa_sessions")
+}
+
+// ─────────────────────────────────────────────
+// CHAT (User ↔ User DM)
+// ─────────────────────────────────────────────
+
+enum ConversationType {
+  DIRECT
+  // GROUP — direservasi, belum dipakai
+}
+
+enum MessageType {
+  TEXT
+  CONTEXT // kartu booking / food order yang di-share
+  SYSTEM // event log (mis. "percakapan dimulai")
+}
+
+enum ChatContextType {
+  BOOKING
+  FOOD_ORDER
+}
+
+model Conversation {
+  id   String           @id @default(uuid())
+  type ConversationType @default(DIRECT)
+
+  // Kunci dedup DM: "<uuidKecil>:<uuidBesar>" (sorted asc).
+  // Unique di level DB → mustahil ada 2 thread untuk pasangan yang sama,
+  // bahkan kalau dua user nge-klik "chat" barengan.
+  // Null untuk tipe non-DIRECT nanti.
+  pairKey String? @unique
+
+  // Snapshot pesan terakhir — denormalisasi supaya list chat
+  // cukup 1 query tanpa join/subquery ke tabel messages.
+  lastMessageAt       DateTime?
+  lastMessagePreview  String?   @db.VarChar(140)
+  lastMessageSenderId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  participants ConversationParticipant[]
+  messages     Message[]
+
+  @@index([lastMessageAt(sort: Desc)])
+  @@map("conversations")
+}
+
+model ConversationParticipant {
+  id             String @id @default(uuid())
+  conversationId String
+  userId         String
+
+  // Sumber kebenaran status baca.
+  // Read receipt DM = message.createdAt <= lawanBicara.lastReadAt
+  lastReadAt        DateTime?
+  lastReadMessageId String?
+
+  // Cache. Boleh drift; selalu bisa direkonsiliasi dari lastReadAt.
+  unreadCount Int @default(0)
+
+  isArchived Boolean   @default(false)
+  isMuted    Boolean   @default(false)
+  joinedAt   DateTime  @default(now())
+  leftAt     DateTime?
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@unique([conversationId, userId])
+  @@index([userId, isArchived])
+  @@map("conversation_participants")
+}
+
+model Message {
+  id             String      @id @default(uuid())
+  conversationId String
+  senderId       String
+  type           MessageType @default(TEXT)
+
+  content String @db.Text
+
+  // Idempotency key dari client (nanoid/uuid yang digenerate FE).
+  // Cegah pesan dobel saat retry HTTP atau reconnect WebSocket.
+  clientId String?
+
+  // Konteks opsional — polymorphic, sengaja TANPA FK karena
+  // targetnya bisa Booking atau FoodOrder. Divalidasi di service.
+  contextType ChatContextType?
+  contextId   String?
+
+  editedAt  DateTime?
+  deletedAt DateTime? // soft delete → tampil sebagai tombstone
+  createdAt DateTime  @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation(fields: [senderId], references: [id])
+
+  @@unique([conversationId, clientId])
+  @@index([conversationId, createdAt(sort: Desc)])
+  @@index([senderId])
+  @@index([contextType, contextId])
+  @@map("messages")
+}
