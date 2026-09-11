@@ -96,9 +96,9 @@ export default function ProfilePage() {
       </dl>
 
       {ssrHandoffUrl() && (
-        <a href={ssrHandoffUrl()!} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
+        <a href={ssrHandoffUrl()!} style={{ textDecoration: "none" }}>
           <button className="secondary" type="button">
-            Open web-ssr home (single sign-on) →
+            Go to home page →
           </button>
         </a>
       )}

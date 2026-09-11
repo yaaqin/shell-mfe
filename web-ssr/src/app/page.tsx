@@ -4,16 +4,16 @@ import { getCurrentAdmin } from "@/lib/session";
 import { apiLogout } from "@/lib/api";
 import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from "@/lib/cookies";
 
-const CSR_APP_URL = process.env.CSR_APP_URL || "http://localhost:9762";
-
 export default async function HomePage() {
   const admin = await getCurrentAdmin();
 
   // web-ssr has no login form of its own — signing in only happens on the
   // CSR app, which then hands the session off to /api/auth/callback here.
-  // So "not authenticated" just means: go sign in over there.
+  // The redirect is a relative path on purpose: both apps live behind the
+  // same gateway (reverse proxy) origin, which routes /login to web-csr —
+  // this only resolves correctly when accessed through the gateway.
   if (!admin) {
-    redirect(`${CSR_APP_URL}/login`);
+    redirect("/login");
   }
 
   async function logoutAction() {
@@ -23,7 +23,7 @@ export default async function HomePage() {
     if (accessToken) await apiLogout(accessToken);
     store.delete(ACCESS_TOKEN_COOKIE);
     store.delete(REFRESH_TOKEN_COOKIE);
-    redirect(`${CSR_APP_URL}/login`);
+    redirect("/login");
   }
 
   const initial = admin.username.charAt(0).toUpperCase();

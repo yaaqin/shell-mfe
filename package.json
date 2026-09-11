@@ -3,11 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "install:all": "npm install --prefix backend && npm install --prefix web-csr && npm install --prefix web-ssr",
+    "install:all": "npm install --prefix backend && npm install --prefix web-csr && npm install --prefix web-ssr && npm install --prefix gateway",
     "db:setup": "npm run prisma:generate --prefix backend",
-    "dev": "concurrently -n backend,web-csr,web-ssr -c blue,magenta,green \"npm run start:dev --prefix backend\" \"npm run dev --prefix web-csr\" \"npm run dev --prefix web-ssr\"",
+    "dev": "concurrently -n backend,web-csr,web-ssr,gateway -c blue,magenta,green,yellow \"npm run start:dev --prefix backend\" \"npm run dev --prefix web-csr\" \"npm run dev --prefix web-ssr\" \"npm run dev --prefix gateway\"",
     "build": "npm run build --prefix backend && npm run build --prefix web-csr && npm run build --prefix web-ssr",
-    "start": "concurrently -n backend,web-csr,web-ssr -c blue,magenta,green \"npm run start --prefix backend\" \"npm run start --prefix web-csr\" \"npm run start --prefix web-ssr\""
+    "start": "concurrently -n backend,web-csr,web-ssr,gateway -c blue,magenta,green,yellow \"npm run start --prefix backend\" \"npm run start --prefix web-csr\" \"npm run start --prefix web-ssr\" \"npm run start --prefix gateway\""
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

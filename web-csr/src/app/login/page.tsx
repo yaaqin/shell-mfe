@@ -1,12 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { login, ApiError } from "@/lib/api";
+import { login, ssrHandoffUrl, ApiError } from "@/lib/api";
 import { setTokens } from "@/lib/auth";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -19,10 +17,15 @@ export default function LoginPage() {
     try {
       const data = await login(identifier, password);
       setTokens({ accessToken: data.accessToken, refreshToken: data.refreshToken });
-      router.push("/profile");
+
+      // Hand the freshly issued tokens off to web-ssr's callback route (via
+      // the gateway) so it can set them as httpOnly cookies, then land on
+      // the home page it renders — a full navigation, not a client-side
+      // route change, since a real server route needs to set the cookies.
+      const handoff = ssrHandoffUrl();
+      window.location.href = handoff ?? "/profile";
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Login failed");
-    } finally {
       setLoading(false);
     }
   }

@@ -1,61 +1,82 @@
-# multiapp — Auth demo: NestJS API + Next.js CSR + Next.js SSR
+# multiapp — Auth demo: reverse-proxy composite frontend
 
-Three apps sharing one **existing, read-only** Postgres database:
+Four processes, composed behind **one gateway origin**, sharing one **existing, read-only** Postgres database:
 
-| App | Tech | Renders | Tokens stored in | Pages |
-|---|---|---|---|---|
-| `backend` | NestJS + Prisma (read-only) | API only | — | `/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/me` |
-| `web-csr` | Next.js (client components) | Client-side | `localStorage` | `/login`, `/profile` |
-| `web-ssr` | Next.js (Server Components/Actions) | Server-side | httpOnly cookies | `/` (home) — **no login page** |
+| App | Tech | Port | Role |
+|---|---|---|---|
+| `gateway` | Node + Express + http-proxy-middleware | **9760** | The only port a browser ever talks to — path-based reverse proxy |
+| `backend` | NestJS + Prisma (read-only) | 9761 | Auth API — internal, called by the frontends |
+| `web-csr` | Next.js (client components) | 9762 | Client-rendered, `localStorage` — internal, reached only via the gateway |
+| `web-ssr` | Next.js (Server Actions/Handlers) | 9763 | Server-rendered, httpOnly cookies — internal, reached only via the gateway |
 
-**Login only happens on `web-csr`.** `web-ssr` has no login form at all — after a successful login on `web-csr`, its profile page offers a "single sign-on" link that hands the freshly issued tokens to `web-ssr`'s `/api/auth/callback`, which sets them as httpOnly cookies and redirects to `/`. Visiting `web-ssr` while logged out redirects straight to `web-csr`'s `/login` (a real cross-origin redirect, not a local page). This is purely to prove out the auth **behavior** of the two frontend patterns (CSR/localStorage vs SSR/cookies) using the same admin credentials, checked against the existing `admins` table in your real Postgres DB; it does not add any new tables or touch your schema.
+**You only ever open `http://localhost:9760`.** The gateway makes web-csr and web-ssr look like a single app ("Composite Frontend" / "Micro-Frontend via Reverse Proxy"):
 
-## Read-only, on purpose
+- `/login`, `/profile`, `/csr-static/*` → `web-csr`
+- everything else (`/`, `/api/auth/callback`, ...) → `web-ssr`
 
-This backend **never writes** to your database — no register endpoint, no session table, no write of any kind. `PrismaService` wraps the Prisma client in an extension that throws on any `create`/`update`/`upsert`/`delete` call, on any model, so this is enforced at runtime, not just by convention (see `backend/src/prisma/prisma.service.ts`). A consequence of this:
-
-- **No registration** — admins already exist in your `admins` table; this demo only logs them in.
-- **Refresh tokens are stateless JWTs**, not DB-backed sessions. Refreshing re-reads the admin (so a deactivated account loses access on its next refresh) but there's no server-side revocation list — a leaked refresh token stays valid until it naturally expires. Fine for testing auth *behavior*; you'd want a real session store before shipping this.
-- **Logout** doesn't revoke anything server-side (nothing to revoke) — it just requires a valid access token and tells the client to drop its tokens.
-- **SSO is out of scope here.** Your schema's SSO fields (`googleId`, etc.) live on the `User` model, not `Admin` — this demo only exercises admin login, so no Google/OAuth code is included.
-
-## Why two different token-storage strategies?
-
-- **web-csr** is a pure client-rendered app. The browser calls the API directly, so tokens live in `localStorage` and get attached as `Authorization: Bearer <token>` on every request. Simple, but readable by any JS on the page (XSS exposure) — the classic CSR trade-off.
-- **web-ssr** never lets the browser touch a token. Since the two apps are different origins, a token issued to `web-csr`'s `localStorage` can't be read by `web-ssr` directly — so `web-csr`'s profile page hands the tokens to `web-ssr`'s `/api/auth/callback` as query params (the same shape as a classic SSO handoff), which sets them as `httpOnly` cookies scoped to `web-ssr`'s own origin and redirects to `/`. From then on, a `proxy.ts` (Next's middleware convention) transparently rotates the access token cookie before each page render when it's expired, so the Server Component home page always sees a valid session — no client JS, no flash of "loading..." while checking auth.
-
-Because the two frontends are different origins, a token issued for one **cannot** be reused by the other on its own — that's why the handoff step exists, and why `web-ssr` bounces logged-out visitors to `web-csr`'s `/login` rather than having a login form of its own.
+**Login only happens on `web-csr`** (the only page with a login form). On success it stores the tokens in `localStorage` **and** immediately navigates to `/api/auth/callback?accessToken=...&refreshToken=...` — a relative URL the gateway routes to `web-ssr` — which sets them as httpOnly cookies and redirects straight to `/` (the home page). Visiting `web-ssr`'s home page without a session redirects (relatively, so it stays on the gateway) back to `/login`. Same admin credentials, checked against the existing `admins` table in your real Postgres DB, drive both storage strategies — this is purely to prove out CSR/localStorage vs SSR/cookie auth *behavior*; nothing here touches your schema.
 
 ## Architecture
 
 ```
-                    ┌──────────────────────┐
-                    │   backend (NestJS)   │   :9761
-                    │  Prisma — READ ONLY  │
-                    │  against your real   │
-                    │  Postgres `admins`   │
-                    │  /auth/login         │
-                    │  /auth/refresh       │
-                    │  /auth/logout        │
-                    │  /auth/me            │
-                    └──────┬────────┬──────┘
-                           │        │
-          Bearer token (body)   Bearer token (body)
-                           │        │
-      ┌────────────────────┘        └────────────────────┐
-      ▼                                                   ▼
-┌─────────────────────┐                     ┌─────────────────────────┐
-│  web-csr :9762       │   tokens via URL   │  web-ssr :9763           │
-│  Client Components    │ ────query params──▶│  Server Actions/Handlers │
-│  fetch() from browser │  (SSO-style        │  fetch() from Next server│
-│  → localStorage       │   handoff)         │  → httpOnly cookies      │
-│  /login /profile      │                     │  /  (home) — no /login  │
-│  "Open web-ssr" link  │                     │  /api/auth/callback     │
-│                       │                     │  proxy.ts auto-refresh   │
-└─────────────────────┘                     └─────────────────────────┘
+                              ┌───────────────────────────┐
+        browser  ───────────▶│   gateway :9760            │◀─── the ONE public port
+                              │   /login,/profile,         │
+                              │   /csr-static/*  → web-csr │
+                              │   everything else → web-ssr│
+                              └───────┬──────────┬─────────┘
+                                      ▼          ▼
+                        ┌─────────────────┐  ┌─────────────────────┐
+                        │ web-csr :9762    │  │ web-ssr :9763         │
+                        │ localStorage     │  │ httpOnly cookies      │
+                        │ /login /profile  │  │ / (home) — no /login  │
+                        │ (only login form)│  │ /api/auth/callback    │
+                        └────────┬────────┘  └──────────┬───────────┘
+                                 │  direct fetch          │  direct fetch
+                                 ▼                        ▼
+                              ┌───────────────────────────┐
+                              │   backend :9761            │
+                              │   Prisma — READ ONLY       │
+                              │   against your real        │
+                              │   Postgres `admins`        │
+                              │   /auth/login /refresh     │
+                              │   /auth/logout /me         │
+                              └───────────────────────────┘
 ```
 
-Logged out and you land on `web-ssr`? It immediately redirects (server-side) to `web-csr`'s `/login` — there's nowhere else to sign in.
+`web-csr`/`web-ssr` still call the backend **directly** (not through the gateway) — CORS on the backend allows the gateway origin plus both internal ports.
+
+## Read-only, on purpose
+
+This backend **never writes** to your database — no register endpoint, no session table, no write of any kind. `PrismaService` wraps the Prisma client in an extension that throws on any `create`/`update`/`upsert`/`delete` call, on any model, so this is enforced at runtime, not just by convention (see `backend/src/prisma/prisma.service.ts`).
+
+- **No registration** — admins already exist in your `admins` table; this demo only logs them in.
+- **Refresh tokens are stateless JWTs**, not DB-backed sessions. Refreshing re-reads the admin (so a deactivated account loses access on its next refresh) but there's no server-side revocation list — a leaked refresh token stays valid until it naturally expires.
+- **Logout** doesn't revoke anything server-side (nothing to revoke) — it just requires a valid access token and tells the client to drop its tokens.
+- **SSO is out of scope here.** Your schema's SSO fields (`googleId`, etc.) live on the `User` model, not `Admin` — this demo only exercises admin login.
+
+## Why a reverse proxy, and why two token-storage strategies?
+
+- **web-csr** is a pure client-rendered app. The browser calls the API directly, so tokens live in `localStorage`. Simple, but readable by any JS on the page (XSS exposure) — the classic CSR trade-off.
+- **web-ssr** never lets the browser touch a token — a Route Handler (`/api/auth/callback`) sets them as `httpOnly` cookies instead. `proxy.ts` (Next's middleware convention) transparently rotates the access token cookie before each page render when it's expired.
+- Since these are genuinely two separate processes/origins, a token from one can't be read by the other directly — hence the handoff via `/api/auth/callback` (same shape as a classic SSO callback).
+- The **gateway** is what makes this feel like one app instead of two: it composes both under a single origin via path-based routing, so relative links/redirects (`/login`, `/`, `/api/auth/callback`) always resolve correctly no matter which internal service actually renders them.
+
+### `web-csr`'s asset prefix
+
+Both `web-csr` and `web-ssr` are Next.js apps, and both default to serving their build assets at `/_next/*`. Merged under one origin, those would collide. `web-csr/next.config.js` sets `assetPrefix: "/csr-static"` so its assets live at `/csr-static/_next/*` instead; the gateway strips that prefix again before forwarding to `web-csr`. **This means opening `web-csr` directly on its own port (9762) shows an unstyled/broken page** — always go through the gateway.
+
+### ⚠️ Dev mode + the gateway: HMR doesn't survive the proxy
+
+Next.js's dev server (Turbopack) runs a hot-reload WebSocket that silently fails to complete its handshake when proxied through an arbitrary reverse proxy (a known Next.js dev-server limitation, not specific to this project) — when that happens, the page loads but **never finishes hydrating**, so clicks/form-submits silently fall back to native browser behavior instead of running React code.
+
+- **Developing `web-csr` or `web-ssr` directly?** Hit their own port (9762 / 9763) — HMR works normally there.
+- **Verifying the composed app through the gateway (:9760)?** Use a production build:
+  ```bash
+  npm run build
+  npm run start
+  ```
+  `npm run dev` still starts everything (including the gateway) for convenience, but only trust interactive behavior through :9760 when running the production build.
 
 ## Auth flow
 
@@ -73,43 +94,43 @@ This project does **not** own or migrate the schema — `backend/prisma/schema.p
 ## Getting started
 
 ```bash
-# 1. Install everything
+# 1. Install everything (backend, web-csr, web-ssr, gateway)
 npm run install:all
 
 # 2. Generate the Prisma client for your existing schema (no migration, no writes)
 npm run db:setup
 
-# 3. Run all three apps together
+# 3. Run all four processes together
 npm run dev
 ```
 
-- Backend: http://localhost:9761
-- web-csr: http://localhost:9762
-- web-ssr: http://localhost:9763
+Open **http://localhost:9760** — that's the only address you should visit as a user.
 
-Or run each individually with `npm run start:dev` (backend) / `npm run dev` (either frontend) inside its own folder.
+(Individually: `npm run start:dev` in `backend/`, `npm run dev` in `web-csr/`/`web-ssr/`/`gateway/`.)
 
 ### Try it
 
-Log in with an **existing admin's** username/email + password (one already exists in your `admins` table — no registration flow here):
+Log in with an **existing admin's** username/email + password (already in your `admins` table — no registration flow here):
 
-1. Open http://localhost:9762/login and sign in. On success you land on `/profile` (web-csr) — check DevTools → Application → Local Storage for the tokens.
-2. On the profile page, click **"Open web-ssr home (single sign-on) →"**. It opens `web-ssr` in a new tab, already logged in as the same admin — check DevTools → Application → Cookies there for `ssr_access_token` / `ssr_refresh_token`, both `httpOnly`.
-3. Try visiting http://localhost:9763/ directly in a fresh/incognito browser (no session) — it redirects straight to `web-csr`'s `/login`, confirming `web-ssr` has no login of its own.
-4. Log out from either app.
+1. Open http://localhost:9760 → redirects to `/login` (served by web-csr).
+2. Sign in. On success you're taken straight to `/` — web-ssr's home page — via the `/api/auth/callback` handoff. Check DevTools → Application: `csr_access_token`/`csr_refresh_token` in **Local Storage**, and `ssr_access_token`/`ssr_refresh_token` in **Cookies** (both `httpOnly`).
+3. Visit `/profile` (web-csr) any time — it still works off the same `localStorage` tokens, with a "Go to home page →" link back to `/`.
+4. Log out from either page.
+5. For the fully interactive experience (forms actually submitting, not falling back to native behavior) run `npm run build && npm run start` first — see the HMR caveat above.
 
 ## Project layout
 
 ```
+gateway/     Reverse proxy (Express + http-proxy-middleware) — the single public entry point
 backend/     NestJS auth API — read-only Prisma against your existing Postgres DB
 web-csr/     Next.js — client components, localStorage, /login /profile (the only login form)
 web-ssr/     Next.js — Server Actions + proxy.ts, httpOnly cookies, / (home) + /api/auth/callback
-             (receives its session via handoff from web-csr; redirects to web-csr's /login otherwise)
 ```
 
 ## Notes / things to change before this becomes more than a behavior test
 
 - Cookies are `secure: false` in dev (no HTTPS on localhost); the code already flips `secure: true` when `NODE_ENV=production`.
 - No server-side refresh-token revocation (see "Read-only, on purpose" above) — add a session table + rotation if this needs to be production auth rather than a behavior demo.
-- CORS is locked to the two frontend origins via `CORS_ORIGINS` in `backend/.env`.
-- `backend/.env`'s `DATABASE_URL` points at a real database — don't commit it; `.env` is gitignored, only `.env.example` (with a placeholder URL) is tracked.
+- CORS on the backend allows the gateway origin (9760) plus both internal frontend ports (9762/9763), via `CORS_ORIGINS` in `backend/.env`.
+- `backend/.env`'s `DATABASE_URL` points at a real database — don't commit it; `.env`/`.env.local` are gitignored, only the `.env*.example` files (placeholders) are tracked.
+- The gateway is a minimal demo proxy (no TLS, no rate limiting, no header hardening) — swap in Nginx/Caddy/a managed load balancer for anything beyond local behavior testing.

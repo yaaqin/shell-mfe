@@ -92,15 +92,17 @@ export async function logout(): Promise<void> {
 
 // web-ssr has no login form of its own — this hands the current tokens off
 // to its callback route (as query params, same shape as a classic SSO
-// callback) so it can set them as httpOnly cookies on its own origin.
+// callback) so it can set them as httpOnly cookies. The path is relative
+// and unqualified on purpose: both apps live behind the same gateway
+// (reverse proxy) origin, which routes anything other than /login and
+// /profile — including /api/auth/callback — to web-ssr. This only works
+// when accessed through the gateway, not when hitting this app's own port
+// directly.
 export function ssrHandoffUrl(): string | null {
   const accessToken = getAccessToken();
   const refreshToken = getRefreshToken();
   if (!accessToken || !refreshToken) return null;
 
-  const ssrUrl = process.env.NEXT_PUBLIC_SSR_APP_URL || "http://localhost:9763";
-  const url = new URL(`${ssrUrl}/api/auth/callback`);
-  url.searchParams.set("accessToken", accessToken);
-  url.searchParams.set("refreshToken", refreshToken);
-  return url.toString();
+  const params = new URLSearchParams({ accessToken, refreshToken });
+  return `/api/auth/callback?${params.toString()}`;
 }
